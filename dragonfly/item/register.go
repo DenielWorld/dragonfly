@@ -37,6 +37,8 @@ func init() {
 	world.RegisterItem("minecraft:diamond_sword", Sword{Tier: tool.TierDiamond})
 	world.RegisterItem("minecraft:netherite_sword", Sword{Tier: tool.TierNetherite})
 
+	world.RegisterItem("minecraft:shears", Shears{})
+
 	world.RegisterItem("minecraft:leather_helmet", Helmet{Tier: armour.TierLeather})
 	world.RegisterItem("minecraft:golden_helmet", Helmet{Tier: armour.TierGold})
 	world.RegisterItem("minecraft:chainmail_helmet", Helmet{Tier: armour.TierChain})
@@ -68,4 +70,6 @@ func init() {
 	world.RegisterItem("minecraft:bucket", Bucket{})
 	world.RegisterItem("minecraft:bucket", Bucket{Content: bucket.Water()})
 	world.RegisterItem("minecraft:bucket", Bucket{Content: bucket.Lava()})
+
+	world.RegisterItem("minecraft:string", String{})
 }

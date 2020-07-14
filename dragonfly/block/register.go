@@ -46,6 +46,7 @@ func init() {
 	world.RegisterBlock(Terracotta{})
 	world.RegisterBlock(allCarpets()...)
 	world.RegisterBlock(allWool()...)
+	world.RegisterBlock(Cobweb{})
 }
 
 func init() {
@@ -97,6 +98,7 @@ func init() {
 
 		world.RegisterItem("minecraft:"+colourName+"_glazed_terracotta", GlazedTerracotta{Colour: c})
 	}
+	world.RegisterItem("minecraft:web", Cobweb{})
 	for _, b := range allLight() {
 		world.RegisterItem("minecraft:light_block", b.(world.Item))
 	}
