@@ -10,8 +10,18 @@ import (
 type Wool struct {
 	noNBT
 	solid
+
 	// Colour is the colour of the wool.
 	Colour colour.Colour
+}
+
+// FlammabilityInfo ...
+func (w Wool) FlammabilityInfo() FlammabilityInfo {
+	return FlammabilityInfo{
+		Encouragement: 30,
+		Flammability:  60,
+		LavaFlammable: true,
+	}
 }
 
 // BreakInfo ...

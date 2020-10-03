@@ -11,4 +11,8 @@ func (NetheriteIngot) EncodeItem() (id int32, meta int16) {
 // PayableForBeacon ...
 func (NetheriteIngot) PayableForBeacon() bool {
 	return true
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> upstream/master

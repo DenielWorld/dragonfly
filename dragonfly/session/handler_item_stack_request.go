@@ -42,7 +42,7 @@ func (h *ItemStackRequestHandler) Handle(p packet.Packet, s *Session) error {
 		if err := h.handleRequest(req, s); err != nil {
 			// Item stacks being out of sync isn't uncommon, so don't error. Just debug the error and let the
 			// revert do its work.
-			s.log.Debugf("error resolving item stack request: %v", err)
+			s.log.Debugf("failed processing packet from %v (%v): ItemStackRequest: error resolving item stack request: %v", s.conn.RemoteAddr(), s.c.Name(), err)
 			return nil
 		}
 	}
@@ -70,6 +70,8 @@ func (h *ItemStackRequestHandler) handleRequest(req protocol.ItemStackRequest, s
 			err = h.handleSwap(a, s)
 		case *protocol.DestroyStackRequestAction:
 			err = h.handleDestroy(a, s)
+		case *protocol.DropStackRequestAction:
+			err = h.handleDrop(a, s)
 		case *protocol.BeaconPaymentStackRequestAction:
 			err = h.handleBeaconPayment(a, s)
 		case *protocol.CraftCreativeStackRequestAction:
@@ -148,6 +150,25 @@ func (h *ItemStackRequestHandler) handleDestroy(a *protocol.DestroyStackRequestA
 	}
 
 	h.setItemInSlot(a.Source, i.Grow(-int(a.Count)), s)
+	return nil
+}
+
+// handleDrop handles the dropping of an item by moving it outside of the inventory while having the
+// inventory opened.
+func (h *ItemStackRequestHandler) handleDrop(a *protocol.DropStackRequestAction, s *Session) error {
+	if err := h.verifySlot(a.Source, s); err != nil {
+		return fmt.Errorf("source slot out of sync: %w", err)
+	}
+	i, _ := h.itemInSlot(a.Source, s)
+	if i.Count() < int(a.Count) {
+		return fmt.Errorf("client attempted to drop %v items, but only %v present", a.Count, i.Count())
+	}
+
+	if s.c.Drop(i.Grow(int(a.Count)-i.Count())) != 0 {
+		h.setItemInSlot(a.Source, i.Grow(-int(a.Count)), s)
+	} else {
+		h.setItemInSlot(a.Source, i, s)
+	}
 	return nil
 }
 
@@ -265,6 +286,10 @@ func (h *ItemStackRequestHandler) verifySlot(slot protocol.StackRequestSlotInfo,
 	// override this network ID later.
 	if id := item_id(i); id != clientID {
 		return fmt.Errorf("stack ID mismatch: client expected %v, but server had %v", clientID, id)
+	}
+	inventory, _ := s.invByID(int32(slot.ContainerID))
+	if inventory.SlotLocked(int(slot.Slot)) {
+		return fmt.Errorf("slot in inventory was locked")
 	}
 	return nil
 }

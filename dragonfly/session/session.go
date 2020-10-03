@@ -152,7 +152,9 @@ func (s *Session) Close() error {
 	yellow := text.Yellow()
 	chat.Global.Println(yellow(s.conn.IdentityData().DisplayName, "has left the game"))
 
-	s.c.World().RemoveEntity(s.c)
+	if s.c.World() != nil {
+		s.c.World().RemoveEntity(s.c)
+	}
 
 	// This should always be called last due to the timing of the removal of entity runtime IDs.
 	s.closePlayerList()
@@ -260,8 +262,10 @@ func (s *Session) handlePacket(pk packet.Packet) error {
 // registerHandlers registers all packet handlers found in the packetHandler package.
 func (s *Session) registerHandlers() {
 	s.handlers = map[uint32]packetHandler{
+		packet.IDActorEvent:            nil,
 		packet.IDActorFall:             nil,
 		packet.IDAnimate:               nil,
+		packet.IDBlockPickRequest:      &BlockPickRequestHandler{},
 		packet.IDBossEvent:             nil,
 		packet.IDClientCacheBlobStatus: &ClientCacheBlobStatusHandler{},
 		packet.IDCommandRequest:        &CommandRequestHandler{},

@@ -17,6 +17,15 @@ type Carpet struct {
 	Colour colour.Colour
 }
 
+// FlammabilityInfo ...
+func (c Carpet) FlammabilityInfo() FlammabilityInfo {
+	return FlammabilityInfo{
+		Encouragement: 30,
+		Flammability:  60,
+		LavaFlammable: true,
+	}
+}
+
 // CanDisplace ...
 func (Carpet) CanDisplace(b world.Liquid) bool {
 	_, water := b.(Water)
@@ -33,7 +42,7 @@ func (c Carpet) BreakInfo() BreakInfo {
 	return BreakInfo{
 		Hardness:    0.1,
 		Harvestable: alwaysHarvestable,
-		Effective:   neverEffective,
+		Effective:   nothingEffective,
 		Drops:       simpleDrops(item.NewStack(c, 1)),
 	}
 }
@@ -61,7 +70,7 @@ func (Carpet) HasLiquidDrops() bool {
 // NeighbourUpdateTick ...
 func (Carpet) NeighbourUpdateTick(pos, _ world.BlockPos, w *world.World) {
 	if _, ok := w.Block(pos.Add(world.BlockPos{0, -1})).(Air); ok {
-		w.BreakBlock(pos)
+		w.BreakBlockWithoutParticles(pos)
 	}
 }
 

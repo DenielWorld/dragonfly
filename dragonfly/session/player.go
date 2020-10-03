@@ -4,8 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/df-mc/dragonfly/dragonfly/block"
-	"github.com/df-mc/dragonfly/dragonfly/entity"
-	_ "github.com/df-mc/dragonfly/dragonfly/entity/effect"
+	"github.com/df-mc/dragonfly/dragonfly/entity/effect"
 	"github.com/df-mc/dragonfly/dragonfly/internal/entity_internal"
 	"github.com/df-mc/dragonfly/dragonfly/internal/nbtconv"
 	"github.com/df-mc/dragonfly/dragonfly/item"
@@ -41,7 +40,7 @@ func (s *Session) closeCurrentContainer() {
 // SendRespawn spawns the controllable of the session client-side in the world, provided it is has died.
 func (s *Session) SendRespawn() {
 	s.writePacket(&packet.Respawn{
-		Position:        vec64To32(s.c.Position().Add(mgl64.Vec3{0, entityOffset(s.c)})),
+		Position:        vec64To32(s.c.Position().Add(entityOffset(s.c))),
 		State:           packet.RespawnStateReadyToSpawn,
 		EntityRuntimeID: selfEntityRuntimeID,
 	})
@@ -327,7 +326,7 @@ func (s *Session) SendAbsorption(value float64) {
 }
 
 // SendEffect sends an effects passed to the player.
-func (s *Session) SendEffect(e entity.Effect) {
+func (s *Session) SendEffect(e effect.Effect) {
 	s.SendEffectRemoval(e)
 	id, _ := effect_idByEffect(e)
 	s.writePacket(&packet.MobEffect{
@@ -341,7 +340,7 @@ func (s *Session) SendEffect(e entity.Effect) {
 }
 
 // SendEffectRemoval sends the removal of an effect passed.
-func (s *Session) SendEffectRemoval(e entity.Effect) {
+func (s *Session) SendEffectRemoval(e effect.Effect) {
 	id, ok := effect_idByEffect(e)
 	if !ok {
 		panic(fmt.Sprintf("unregistered effect type %T", e))
@@ -471,10 +470,12 @@ func (s *Session) HandleInventories() (inv, offHand *inventory.Inventory, armour
 			viewer.ViewEntityItems(s.c)
 		}
 		if !s.inTransaction.Load() {
-			s.writePacket(&packet.InventorySlot{
+			i, _ := s.offHand.Item(1)
+			s.writePacket(&packet.InventoryContent{
 				WindowID: protocol.WindowIDOffHand,
-				Slot:     uint32(slot),
-				NewItem:  instanceFromItem(item),
+				Content: []protocol.ItemInstance{
+					instanceFromItem(i),
+				},
 			})
 		}
 	})
@@ -491,6 +492,28 @@ func (s *Session) HandleInventories() (inv, offHand *inventory.Inventory, armour
 		}
 	})
 	return s.inv, s.offHand, s.armour, s.heldSlot
+}
+
+// SetHeldSlot sets the currently held hotbar slot.
+func (s *Session) SetHeldSlot(slot int) error {
+	if slot > 8 {
+		return fmt.Errorf("slot exceeds hotbar range 0-8: slot is %v", slot)
+	}
+
+	s.heldSlot.Store(uint32(slot))
+
+	for _, viewer := range s.c.World().Viewers(s.c.Position()) {
+		viewer.ViewEntityItems(s.c)
+	}
+
+	mainHand, _ := s.c.HeldItems()
+	s.writePacket(&packet.MobEquipment{
+		EntityRuntimeID: selfEntityRuntimeID,
+		NewItem:         stackFromItem(mainHand),
+		InventorySlot:   byte(slot),
+		HotBarSlot:      byte(slot),
+	})
+	return nil
 }
 
 // stackFromItem converts an item.Stack to its network ItemStack representation.
@@ -558,8 +581,8 @@ func item_id(s item.Stack) int32
 
 //go:linkname effect_idByEffect github.com/df-mc/dragonfly/dragonfly/entity/effect.idByEffect
 //noinspection ALL
-func effect_idByEffect(entity.Effect) (int, bool)
+func effect_idByEffect(effect.Effect) (int, bool)
 
 //go:linkname effect_byID github.com/df-mc/dragonfly/dragonfly/entity/effect.effectByID
 //noinspection ALL
-func effect_byID(int) (entity.Effect, bool)
+func effect_byID(int) (effect.Effect, bool)

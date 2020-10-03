@@ -30,9 +30,10 @@ type World struct {
 	lastPos   ChunkPos
 	lastChunk *chunkData
 
-	stopTick    context.Context
-	cancelTick  context.CancelFunc
-	doneTicking chan struct{}
+	stopTick         context.Context
+	cancelTick       context.CancelFunc
+	stopCacheJanitor chan struct{}
+	doneTicking      chan struct{}
 
 	gameModeMu      sync.RWMutex
 	defaultGameMode gamemode.GameMode
@@ -53,6 +54,11 @@ type World struct {
 	// chunks holds a cache of chunks currently loaded. These chunks are cleared from this map after some time
 	// of not being used.
 	chunks map[ChunkPos]*chunkData
+
+	ePosMu sync.Mutex
+	// lastEntityPositions holds a map of the last ChunkPos that an Entity was in. These are tracked so that
+	// a call to RemoveEntity can find the correct entity.
+	lastEntityPositions map[Entity]ChunkPos
 
 	r         *rand.Rand
 	simDistSq int32
@@ -80,21 +86,23 @@ type World struct {
 func New(log *logrus.Logger, simulationDistance int) *World {
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &World{
-		r:               rand.New(rand.NewSource(time.Now().Unix())),
-		blockUpdates:    map[BlockPos]int64{},
-		defaultGameMode: gamemode.Survival{},
-		difficulty:      difficulty.Normal{},
-		prov:            NoIOProvider{},
-		gen:             NopGenerator{},
-		handler:         NopHandler{},
-		doneTicking:     make(chan struct{}),
-		simDistSq:       int32(simulationDistance * simulationDistance),
-		randomTickSpeed: *atomic.NewUint32(3),
-		unixTime:        *atomic.NewInt64(time.Now().Unix()),
-		log:             log,
-		stopTick:        ctx,
-		cancelTick:      cancel,
-		name:            *atomic.NewString("World"),
+		r:                   rand.New(rand.NewSource(time.Now().Unix())),
+		blockUpdates:        map[BlockPos]int64{},
+		lastEntityPositions: map[Entity]ChunkPos{},
+		defaultGameMode:     gamemode.Survival{},
+		difficulty:          difficulty.Normal{},
+		prov:                NoIOProvider{},
+		gen:                 NopGenerator{},
+		handler:             NopHandler{},
+		doneTicking:         make(chan struct{}),
+		stopCacheJanitor:    make(chan struct{}),
+		simDistSq:           int32(simulationDistance * simulationDistance),
+		randomTickSpeed:     *atomic.NewUint32(3),
+		unixTime:            *atomic.NewInt64(time.Now().Unix()),
+		log:                 log,
+		stopTick:            ctx,
+		cancelTick:          cancel,
+		name:                *atomic.NewString("World"),
 	}
 	w.initChunkCache()
 	go w.startTicking()
@@ -182,13 +190,25 @@ func runtimeID(w *World, pos BlockPos) uint32 {
 //lint:ignore U1000 Function is used using compiler directives.
 //noinspection GoUnusedFunction
 func highestLightBlocker(w *World, x, z int) uint8 {
-	c, err := w.chunk(chunkPosFromBlockPos(BlockPos{x, 0, z}))
+	c, err := w.chunk(ChunkPos{int32(x >> 4), int32(z >> 4)})
 	if err != nil {
 		return 0
 	}
 	v := c.HighestLightBlocker(uint8(x), uint8(z))
 	c.Unlock()
 	return v
+}
+
+// HighestBlock looks up the highest non-air block in the world at a specific x and z in the world. The y
+// value of the highest block is returned, or 0 if no blocks were present in the column.
+func (w *World) HighestBlock(x, z int) int {
+	c, err := w.chunk(ChunkPos{int32(x >> 4), int32(z >> 4)})
+	if err != nil {
+		return 0
+	}
+	v := c.HighestBlock(uint8(x), uint8(z))
+	c.Unlock()
+	return int(v)
 }
 
 // SetBlock writes a block to the position passed. If a chunk is not yet loaded at that position, the chunk is
@@ -215,6 +235,7 @@ func (w *World) SetBlock(pos BlockPos, b Block) {
 	runtimeID, ok := runtimeIDsHashes.Get(h)
 	if !ok {
 		w.log.Errorf("runtime ID of block state %+v not found", b)
+		c.Unlock()
 		return
 	}
 	c.SetRuntimeID(uint8(pos[0]), uint8(pos[1]), uint8(pos[2]), 0, uint32(runtimeID))
@@ -262,6 +283,18 @@ func (w *World) BreakBlock(pos BlockPos) {
 	old := w.Block(pos)
 	w.SetBlock(pos, nil)
 	w.AddParticle(pos.Vec3Centre(), breakParticle(old))
+	if liq, ok := w.Liquid(pos); ok {
+		// Move the liquid down a layer.
+		w.SetLiquid(pos, liq)
+	} else {
+		w.doBlockUpdatesAround(pos)
+	}
+}
+
+// BreakBlockWithoutParticles breaks a block at the position passed. Unlike when setting the block at that position to air,
+// BreakBlockWithoutParticles will also update blocks around the position.
+func (w *World) BreakBlockWithoutParticles(pos BlockPos) {
+	w.SetBlock(pos, nil)
 	if liq, ok := w.Liquid(pos); ok {
 		// Move the liquid down a layer.
 		w.SetLiquid(pos, liq)
@@ -656,7 +689,14 @@ func (w *World) AddEntity(e Entity) {
 // RemoveEntity assumes the entity is currently loaded and in a loaded chunk. If not, the function will not do
 // anything.
 func (w *World) RemoveEntity(e Entity) {
-	chunkPos := chunkPosFromVec3(e.Position())
+	w.ePosMu.Lock()
+	chunkPos, found := w.lastEntityPositions[e]
+	w.ePosMu.Unlock()
+	if !found {
+		chunkPos = chunkPosFromVec3(e.Position())
+	} else {
+		delete(w.lastEntityPositions, e)
+	}
 
 	worldsMu.Lock()
 	delete(entityWorlds, e)
@@ -1080,7 +1120,7 @@ func (w *World) tickRandomBlocks(viewers []Viewer, tick int64) {
 					// No layers present, so skip it right away.
 					continue
 				}
-				x, y, z := ra>>i&0xf, rb>>i&0xf, rc>>i&0xf
+				x, y, z := (ra>>i)&0xf, (rb>>i)&0xf, (rc>>i)&0xf
 
 				// Generally we would want to make sure the block has its block entities, but provided blocks
 				// with block entities are generally ticked already, we are safe to assume that blocks
@@ -1092,7 +1132,7 @@ func (w *World) tickRandomBlocks(viewers []Viewer, tick int64) {
 				}
 
 				if randomTicker, ok := registeredStates[rid].(RandomTicker); ok {
-					w.toTick = append(w.toTick, toTick{b: randomTicker, pos: BlockPos{int(pos[0]<<4) + x, y + i>>2, int(pos[1]<<4) + z}})
+					w.toTick = append(w.toTick, toTick{b: randomTicker, pos: BlockPos{int(pos[0]<<4) + x, y + i<<2, int(pos[1]<<4) + z}})
 				}
 			}
 		}
@@ -1140,6 +1180,9 @@ func (w *World) tickEntities(tick int64) {
 				if !ok {
 					continue
 				}
+				w.ePosMu.Lock()
+				w.lastEntityPositions[entity] = newChunkPos
+				w.ePosMu.Unlock()
 				entitiesToMove = append(entitiesToMove, entityToMove{e: entity, viewersBefore: append([]Viewer(nil), c.v...), after: newC})
 				continue
 			}
@@ -1303,7 +1346,6 @@ func showEntity(e Entity, viewer Viewer) {
 // chunk locks the chunk returned, meaning that any call to chunk made at the same time has to wait until the
 // user calls Chunk.Unlock() on the chunk returned.
 func (w *World) chunk(pos ChunkPos) (*chunkData, error) {
-	var needsLight bool
 	var err error
 
 	w.chunkMu.Lock()
@@ -1321,16 +1363,35 @@ func (w *World) chunk(pos ChunkPos) (*chunkData, error) {
 			return nil, err
 		}
 		w.chunks[pos] = c
-		needsLight = true
+		w.calculateLight(c.Chunk, pos)
 	}
 	w.lastChunk, w.lastPos = c, pos
 	w.chunkMu.Unlock()
 
-	if needsLight {
-		w.calculateLight(c.Chunk, pos)
-	}
 	c.Lock()
 	return c, nil
+}
+
+// setChunk sets the chunk.Chunk passed at a specific ChunkPos without replacing any entities at that
+// position.
+//lint:ignore U1000 This method is explicitly present to be used using compiler directives.
+func (w *World) setChunk(pos ChunkPos, c *chunk.Chunk) {
+	w.chunkMu.Lock()
+	defer w.chunkMu.Unlock()
+
+	data, ok := w.chunks[pos]
+	if ok {
+		data.Chunk = c
+	} else {
+		data = newChunkData(c)
+		w.chunks[pos] = data
+	}
+	blockNBT := make([]map[string]interface{}, 0, len(c.BlockNBT()))
+	for pos, e := range c.BlockNBT() {
+		e["x"], e["y"], e["z"] = int32(pos[0]), int32(pos[1]), int32(pos[2])
+		blockNBT = append(blockNBT, e)
+	}
+	w.loadIntoBlocks(data, blockNBT)
 }
 
 // loadChunk attempts to load a chunk from the provider, or generates a chunk if one doesn't currently exist.
@@ -1363,11 +1424,8 @@ func (w *World) loadChunk(pos ChunkPos) (*chunkData, error) {
 // calculateLight calculates the light in the chunk passed and spreads the light of any of the surrounding
 // neighbours if they have all chunks loaded around it as a result of the one passed.
 func (w *World) calculateLight(c *chunk.Chunk, pos ChunkPos) {
-	c.Lock()
 	chunk.FillLight(c)
-	c.Unlock()
 
-	w.chunkMu.RLock()
 	for x := int32(-1); x <= 1; x++ {
 		for z := int32(-1); z <= 1; z++ {
 			// For all of the neighbours of this chunk, if they exist, check if all neighbours of that chunk
@@ -1386,7 +1444,6 @@ func (w *World) calculateLight(c *chunk.Chunk, pos ChunkPos) {
 	// If the chunk loaded happened to be in the middle of a bunch of other chunks, we are able to spread it
 	// right away, so we try to do that.
 	w.spreadLight(c, pos)
-	w.chunkMu.RUnlock()
 }
 
 // spreadLight spreads the light from the chunk passed at the position passed to all neighbours if each of
@@ -1400,7 +1457,7 @@ func (w *World) spreadLight(c *chunk.Chunk, pos ChunkPos) {
 				allPresent = false
 				break
 			}
-			if !(x == 0 && z == 0) {
+			if x != 0 || z != 0 {
 				neighbours = append(neighbours, neighbour.Chunk)
 			}
 		}
@@ -1445,10 +1502,12 @@ func (w *World) saveChunk(pos ChunkPos, c *chunkData) {
 	// We allocate a new map for all block entities.
 	m := make([]map[string]interface{}, 0, len(c.e))
 	for pos, b := range c.e {
-		// Encode the block entities and add the 'x', 'y' and 'z' tags to it.
-		data := b.(NBTer).EncodeNBT()
-		data["x"], data["y"], data["z"] = int32(pos[0]), int32(pos[1]), int32(pos[2])
-		m = append(m, data)
+		if n, ok := b.(NBTer); ok {
+			// Encode the block entities and add the 'x', 'y' and 'z' tags to it.
+			data := n.EncodeNBT()
+			data["x"], data["y"], data["z"] = int32(pos[0]), int32(pos[1]), int32(pos[2])
+			m = append(m, data)
+		}
 	}
 	if !w.rdonly.Load() {
 		c.Compact()
@@ -1478,6 +1537,14 @@ func (w *World) initChunkCache() {
 	w.chunkMu.Unlock()
 }
 
+// CloseChunkCacheJanitor closes the chunk cache janitor of the world. Calling this method will prevent chunks
+// from unloading until the World is closed, preventing entities from despawning. As a result, this could lead
+// to a memory leak if the size of the world can grow. This method should therefore only be used in places
+// where the movement of players is limited to a confined space such as a hub.
+func (w *World) CloseChunkCacheJanitor() {
+	close(w.stopCacheJanitor)
+}
+
 // chunkCacheJanitor runs until the world is closed, cleaning chunks that are no longer in use from the cache.
 func (w *World) chunkCacheJanitor() {
 	t := time.NewTicker(time.Minute * 5)
@@ -1501,6 +1568,8 @@ func (w *World) chunkCacheJanitor() {
 				delete(chunksToRemove, pos)
 			}
 		case <-w.stopTick.Done():
+			return
+		case <-w.stopCacheJanitor:
 			return
 		}
 	}

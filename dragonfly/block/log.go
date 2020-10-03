@@ -13,6 +13,7 @@ import (
 type Log struct {
 	noNBT
 	solid
+
 	// Wood is the type of wood of the log. This field must have one of the values found in the material
 	// package.
 	Wood wood.Wood
@@ -20,6 +21,15 @@ type Log struct {
 	Stripped bool
 	// Axis is the axis which the log block faces.
 	Axis world.Axis
+}
+
+// FlammabilityInfo ...
+func (l Log) FlammabilityInfo() FlammabilityInfo {
+	return FlammabilityInfo{
+		Encouragement: 5,
+		Flammability:  5,
+		LavaFlammable: true,
+	}
 }
 
 // UseOnBlock handles the rotational placing of logs.

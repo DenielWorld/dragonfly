@@ -11,4 +11,8 @@ func (IronIngot) EncodeItem() (id int32, meta int16) {
 // PayableForBeacon ...
 func (IronIngot) PayableForBeacon() bool {
 	return true
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> upstream/master

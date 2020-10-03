@@ -11,8 +11,8 @@ import (
 // WoodStairs are blocks that allow entities to walk up blocks without jumping. They are crafted using planks.
 type WoodStairs struct {
 	noNBT
-
 	transparent
+
 	// Wood is the type of wood of the stairs. This field must have one of the values found in the material
 	// package.
 	Wood wood.Wood
@@ -21,6 +21,18 @@ type WoodStairs struct {
 	UpsideDown bool
 	// Facing is the direction that the full side of the stairs is facing.
 	Facing world.Direction
+}
+
+// FlammabilityInfo ...
+func (f WoodStairs) FlammabilityInfo() FlammabilityInfo {
+	if !f.Wood.Flammable() {
+		return FlammabilityInfo{}
+	}
+	return FlammabilityInfo{
+		Encouragement: 5,
+		Flammability:  20,
+		LavaFlammable: true,
+	}
 }
 
 // UseOnBlock handles the directional placing of stairs and makes sure they are properly placed upside down
@@ -69,27 +81,17 @@ func (s WoodStairs) EncodeItem() (id int32, meta int16) {
 		return 163, 0
 	case wood.DarkOak():
 		return 164, 0
+	case wood.Crimson():
+		return -254, 0
+	case wood.Warped():
+		return -255, 0
 	}
 	panic("invalid wood type")
 }
 
 // EncodeBlock ...
 func (s WoodStairs) EncodeBlock() (name string, properties map[string]interface{}) {
-	switch s.Wood {
-	case wood.Oak():
-		return "minecraft:oak_stairs", map[string]interface{}{"upside_down_bit": s.UpsideDown, "weirdo_direction": toStairsDirection(s.Facing)}
-	case wood.Spruce():
-		return "minecraft:spruce_stairs", map[string]interface{}{"upside_down_bit": s.UpsideDown, "weirdo_direction": toStairsDirection(s.Facing)}
-	case wood.Birch():
-		return "minecraft:birch_stairs", map[string]interface{}{"upside_down_bit": s.UpsideDown, "weirdo_direction": toStairsDirection(s.Facing)}
-	case wood.Jungle():
-		return "minecraft:jungle_stairs", map[string]interface{}{"upside_down_bit": s.UpsideDown, "weirdo_direction": toStairsDirection(s.Facing)}
-	case wood.Acacia():
-		return "minecraft:acacia_stairs", map[string]interface{}{"upside_down_bit": s.UpsideDown, "weirdo_direction": toStairsDirection(s.Facing)}
-	case wood.DarkOak():
-		return "minecraft:dark_oak_stairs", map[string]interface{}{"upside_down_bit": s.UpsideDown, "weirdo_direction": toStairsDirection(s.Facing)}
-	}
-	panic("invalid wood type")
+	return "minecraft:" + s.Wood.String() + "_stairs", map[string]interface{}{"upside_down_bit": s.UpsideDown, "weirdo_direction": toStairsDirection(s.Facing)}
 }
 
 // Hash ...
@@ -116,12 +118,9 @@ func (s WoodStairs) SideClosed(pos, side world.BlockPos, w *world.World) bool {
 // allWoodStairs returns all states of wood stairs.
 func allWoodStairs() (stairs []world.Block) {
 	f := func(facing world.Direction, upsideDown bool) {
-		stairs = append(stairs, WoodStairs{Facing: facing, UpsideDown: upsideDown, Wood: wood.Oak()})
-		stairs = append(stairs, WoodStairs{Facing: facing, UpsideDown: upsideDown, Wood: wood.Spruce()})
-		stairs = append(stairs, WoodStairs{Facing: facing, UpsideDown: upsideDown, Wood: wood.Birch()})
-		stairs = append(stairs, WoodStairs{Facing: facing, UpsideDown: upsideDown, Wood: wood.Jungle()})
-		stairs = append(stairs, WoodStairs{Facing: facing, UpsideDown: upsideDown, Wood: wood.Acacia()})
-		stairs = append(stairs, WoodStairs{Facing: facing, UpsideDown: upsideDown, Wood: wood.DarkOak()})
+		for _, w := range wood.All() {
+			stairs = append(stairs, WoodStairs{Facing: facing, UpsideDown: upsideDown, Wood: w})
+		}
 	}
 	for i := world.Direction(0); i <= 3; i++ {
 		f(i, true)

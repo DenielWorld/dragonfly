@@ -105,6 +105,7 @@ func (server *Server) Run() error {
 
 	server.log.Info("Starting server...")
 	server.loadWorld()
+	server.World().Generator(generator.Flat{})
 	if err := server.startListening(); err != nil {
 		return err
 	}
@@ -124,6 +125,7 @@ func (server *Server) Start() error {
 
 	server.log.Info("Starting server...")
 	server.loadWorld()
+	server.World().Generator(generator.Flat{})
 	if err := server.startListening(); err != nil {
 		return err
 	}
@@ -183,6 +185,17 @@ func (server *Server) Player(uuid uuid.UUID) (*player.Player, bool) {
 
 	if p, ok := server.p[uuid]; ok {
 		return p, true
+	}
+	return nil, false
+}
+
+// PlayerByName looks for a player on the server with the name passed. If found, the player is returned and the bool
+// returns holds a true value. If not, the bool is false and the player is nil
+func (server *Server) PlayerByName(name string) (*player.Player, bool) {
+	for _, p := range server.Players() {
+		if p.Name() == name {
+			return p, true
+		}
 	}
 	return nil, false
 }
@@ -254,9 +267,10 @@ func (server *Server) startListening() error {
 	server.listener = &minecraft.Listener{
 		// We wrap a log.Logger around our Logrus logger so that it will print in the same format as the
 		// normal Logrus logger would.
-		ErrorLog:       log.New(w, "", 0),
-		ServerName:     server.c.Server.Name,
-		MaximumPlayers: server.c.Server.MaximumPlayers,
+		ErrorLog:               log.New(w, "", 0),
+		ServerName:             server.c.Server.Name,
+		MaximumPlayers:         server.c.Server.MaximumPlayers,
+		AuthenticationDisabled: !server.c.Server.AuthEnabled,
 	}
 	//noinspection SpellCheckingInspection
 	if err := server.listener.Listen("raknet", server.c.Network.Address); err != nil {
@@ -271,7 +285,6 @@ func (server *Server) startListening() error {
 // run runs the server, continuously accepting new connections from players. It returns when the server is
 // closed by a call to Close.
 func (server *Server) run() {
-	server.World().Generator(generator.Flat{})
 	for {
 		c, err := server.listener.Accept()
 		if err != nil {
@@ -288,6 +301,7 @@ func (server *Server) run() {
 func (server *Server) handleConn(conn *minecraft.Conn) {
 	//noinspection SpellCheckingInspection
 	data := minecraft.GameData{
+		Yaw:            90,
 		WorldName:      server.c.World.Name,
 		Blocks:         server.blockEntries(),
 		PlayerPosition: vec64To32(server.world.Spawn().Vec3Centre()),

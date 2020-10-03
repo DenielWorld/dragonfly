@@ -11,4 +11,8 @@ func (Emerald) EncodeItem() (id int32, meta int16) {
 // PayableForBeacon ...
 func (Emerald) PayableForBeacon() bool {
 	return true
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> upstream/master

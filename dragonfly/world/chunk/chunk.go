@@ -1,6 +1,9 @@
 package chunk
 
-import "sync"
+import (
+	"bytes"
+	"sync"
+)
 
 // Chunk is a segment in the world with a size of 16x16x256 blocks. A chunk contains multiple sub chunks
 // and stores other information such as biomes.
@@ -69,6 +72,11 @@ func (chunk *Chunk) RuntimeID(x, y, z uint8, layer uint8) uint32 {
 // fullSkyLight is used to copy full light to newly created sub chunks.
 var fullSkyLight [2048]byte
 
+func init() {
+	b := bytes.Repeat([]byte{0xff}, 2048)
+	copy(fullSkyLight[:], b)
+}
+
 // SetRuntimeID sets the runtime ID of a block at a given x, y and z in a chunk at the given layer. If no
 // SubChunk exists at the given y, a new SubChunk is created and the block is set.
 func (chunk *Chunk) SetRuntimeID(x, y, z uint8, layer uint8, runtimeID uint32) {
@@ -98,8 +106,26 @@ func (chunk *Chunk) HighestLightBlocker(x, z uint8) uint8 {
 		}
 		for y := 15; y >= 0; y-- {
 			totalY := uint8(y | (subY << 4))
+			if FilteringBlocks[sub.storages[0].RuntimeID(x, totalY, z)] == 15 {
+				return totalY
+			}
+		}
+	}
+	return 0
+}
+
+// HighestBlock iterates from the highest non-empty sub chunk downwards to find the Y value of the highest
+// non-air block at an x and z. If no blocks are present in the column, 0 is returned.
+func (chunk *Chunk) HighestBlock(x, z uint8) uint8 {
+	for subY := 15; subY >= 0; subY-- {
+		sub := chunk.sub[subY]
+		if sub == nil || len(sub.storages) == 0 {
+			continue
+		}
+		for y := 15; y >= 0; y-- {
+			totalY := uint8(y | (subY << 4))
 			rid := sub.storages[0].RuntimeID(x, totalY, z)
-			if _, ok := FilteringBlocks[rid]; !ok {
+			if rid != 0 {
 				return totalY
 			}
 		}
