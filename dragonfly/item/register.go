@@ -3,6 +3,7 @@ package item
 import (
 	"github.com/df-mc/dragonfly/dragonfly/item/armour"
 	"github.com/df-mc/dragonfly/dragonfly/item/bucket"
+	"github.com/df-mc/dragonfly/dragonfly/item/potion"
 	"github.com/df-mc/dragonfly/dragonfly/item/tool"
 	"github.com/df-mc/dragonfly/dragonfly/world"
 )
@@ -74,4 +75,38 @@ func init() {
 	world.RegisterItem("minecraft:gold_ingot", GoldIngot{})
 	world.RegisterItem("minecraft:iron_ingot", IronIngot{})
 	world.RegisterItem("minecraft:netherite_ingot", NetheriteIngot{})
+
+	world.RegisterItem("minecraft:clay_ball", ClayBall{})
+	world.RegisterItem("minecraft:quartz", NetherQuartz{})
+	world.RegisterItem("minecraft:flint", Flint{})
+
+	world.RegisterItem("minecraft:stick", Stick{})
+	world.RegisterItem("minecraft:magma_cream", MagmaCream{})
+
+	world.RegisterItem("minecraft:dye", BoneMeal{})
+	world.RegisterItem("minecraft:wheat", Wheat{})
+	world.RegisterItem("minecraft:beetroot", Beetroot{})
+	world.RegisterItem("minecraft:melon", MelonSlice{})
+
+	world.RegisterItem("minecraft:apple", Apple{})
+
+	world.RegisterItem("minecraft:brick", Brick{})
+
+	world.RegisterItem("minecraft:leather", Leather{})
+
+	world.RegisterItem("minecraft:glass_bottle", GlassBottle{})
+	for _, p := range potion.All() {
+		world.RegisterItem("minecraft:potion", Potion{Type: p})
+	}
+
+	world.RegisterItem("minecraft:flint_and_steel", FlintAndSteel{})
+
+	world.RegisterItem("minecraft:prismarine_crystals", PrismarineCrystals{})
+
+	world.RegisterItem("minecraft:poisonous_potato", PoisonousPotato{})
+	world.RegisterItem("minecraft:golden_apple", GoldenApple{})
+	world.RegisterItem("minecraft:appleenchanted", EnchantedApple{})
+	world.RegisterItem("minecraft:chorus_fruit", ChorusFruit{})
+	world.RegisterItem("minecraft:pufferfish", Pufferfish{})
+	world.RegisterItem("minecraft:clock", Clock{})
 }
