@@ -106,7 +106,10 @@ func init() {
 	world.RegisterItem("minecraft:poisonous_potato", PoisonousPotato{})
 	world.RegisterItem("minecraft:golden_apple", GoldenApple{})
 	world.RegisterItem("minecraft:appleenchanted", EnchantedApple{})
-	world.RegisterItem("minecraft:chorus_fruit", ChorusFruit{})
 	world.RegisterItem("minecraft:pufferfish", Pufferfish{})
+	world.RegisterItem("minecraft:porkchop", RawPorkchop{})
+	world.RegisterItem("minecraft:cooked_porkchop", CookedPorkchop{})
+	world.RegisterItem("minecraft:beef", RawBeef{})
+	world.RegisterItem("minecraft:cooked_beef", Steak{})
 	world.RegisterItem("minecraft:clock", Clock{})
 }
